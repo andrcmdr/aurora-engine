@@ -1,8 +1,8 @@
 use {
-    crate::meta_parsing::{near_erc712_domain, parse_meta_call, prepare_meta_call_args},
-    crate::prelude::keccak,
+    crate::prelude::sdk::keccak,
     crate::prelude::{u256_to_arr, InternalMetaCallArgs, Wei},
     crate::prelude::{Address, U256},
+    aurora_engine::meta_parsing::{near_erc712_domain, parse_meta_call, prepare_meta_call_args},
     aurora_engine::parameters::MetaCallArgs,
     borsh::BorshSerialize,
     near_crypto::{InMemorySigner, KeyType, PublicKey, Signature, Signer},
