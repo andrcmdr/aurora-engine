@@ -4,8 +4,13 @@ use crate::json::{JsonError, JsonValue};
 use crate::prelude::account_id::AccountId;
 use crate::prelude::{
     format, Balance, BorshDeserialize, BorshSerialize, EthAddress, RawAddress, RawH256, RawU256,
-    SdkUnwrap, String, ToString, TryFrom, Vec, WeiU256,
+    SdkUnwrap, String, ToString, TryFrom, Vec, Wei, U256,
 };
+
+use std::io::Error;
+use std::io::ErrorKind;
+use std::io::Result;
+
 use crate::proof::Proof;
 use evm::backend::Log;
 
@@ -131,12 +136,59 @@ impl SubmitResult {
 }
 
 /// Borsh-encoded parameters for the engine `call` function.
-#[derive(BorshSerialize, BorshDeserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct FunctionCallArgsV2 {
     pub contract: RawAddress,
     /// Wei compatible Borsh-encoded value field to attach an ETH balance to the transaction
-    pub value: WeiU256,
+    pub value: Wei,
     pub input: Vec<u8>,
+}
+
+impl BorshDeserialize for FunctionCallArgsV2 {
+    fn deserialize(buf: &mut &[u8]) -> Result<Self> {
+        if buf.is_empty() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Unexpected length of input",
+            ));
+        };
+        let contract: Option<RawAddress> = {
+            let mut contract_bytes: RawAddress = [0u8; 20];
+            contract_bytes.copy_from_slice(&buf[0..19]);
+            Some(contract_bytes)
+        };
+        let value: Option<Wei> = {
+            let mut value_bytes = [0u8; 32];
+            value_bytes.copy_from_slice(&buf[20..51]);
+            Some(Wei::new(U256::from_big_endian(&value_bytes)))
+        };
+        let input: Option<Vec<u8>> = {
+            let mut input_bytes: Vec<u8> = Vec::new();
+            input_bytes.copy_from_slice(&buf[52..]);
+            Some(input_bytes)
+        };
+        if let (Some(contract), Some(value), Some(input)) = (contract, value, input) {
+            Ok(Self {
+                contract,
+                value,
+                input,
+            })
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidInput,
+                "Unexpected length of input",
+            ))
+        }
+    }
+}
+
+impl BorshSerialize for FunctionCallArgsV2 {
+    fn serialize<W: std::io::Write>(&self, writer: &mut W) -> Result<()> {
+        writer.write(&self.contract)?;
+        writer.write(&self.value.to_bytes())?;
+        writer.write(&self.input)?;
+        Ok(())
+    }
 }
 
 /// Legacy Borsh-encoded parameters for the engine `call` function, to provide backward type compatibility
@@ -242,7 +294,7 @@ pub struct NEP141FtOnTransferArgs {
 impl TryFrom<JsonValue> for NEP141FtOnTransferArgs {
     type Error = JsonError;
 
-    fn try_from(value: JsonValue) -> Result<Self, Self::Error> {
+    fn try_from(value: JsonValue) -> core::result::Result<Self, Self::Error> {
         Ok(Self {
             sender_id: AccountId::try_from(value.string("sender_id")?)
                 .map_err(|_| JsonError::InvalidString)?,
@@ -505,7 +557,7 @@ mod tests {
     fn test_call_args_deserialize() {
         let new_input = FunctionCallArgsV2 {
             contract: [0u8; 20],
-            value: WeiU256::default(),
+            value: Wei::zero(),
             input: Vec::new(),
         };
         let legacy_input = FunctionCallArgsV1 {
